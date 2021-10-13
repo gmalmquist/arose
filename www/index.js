@@ -8,7 +8,7 @@ const mainLoop = () => {
   arose.update();
 };
 
-setTimeout(mainLoop, 15);
+setInterval(mainLoop, 15);
 
 window.addEventListener('keydown', event => {
   arose.handle_key_down(event.key);

@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use js_sys::Math::sqrt;
 use wasm_bindgen::__rt::core::ops::{BitXor, Div};
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Vec3 {
     pub x: f64,
     pub y: f64,
@@ -15,11 +15,30 @@ impl Vec3 {
         Self { x, y, z}
     }
 
+    pub fn zero() -> Self {
+        Self::new(0., 0., 0.)
+    }
+
+    pub fn set(mut self, x: f64, y: f64, z: f64) -> Self {
+        self.x = x;
+        self.y = y;
+        self.z = z;
+        self
+    }
+
     pub fn add_mut(mut self, x: f64, y: f64, z: f64) -> Self {
         self.x += x;
         self.y += y;
         self.z += z;
         self
+    }
+
+    pub fn add_vec_mut(mut self, v: &Vec3) -> Self {
+        self.add_mut(v.x, v.y, v.z)
+    }
+
+    pub fn sadd_vec_mut(mut self, scale: f64, v: &Vec3) -> Self {
+        self.add_mut(scale * v.x, scale * v.y, scale * v.z)
     }
 
     pub fn scale_mut(mut self, x: f64, y: f64, z: f64) -> Self {
@@ -29,10 +48,15 @@ impl Vec3 {
         self
     }
 
+    pub fn scale_uniform_mut(mut self, s: f64) -> Self {
+        self.scale_mut(s, s, s)
+    }
+
     pub fn dot(&self, other: &Vec3) -> f64 {
         self.x * other.x + self.y * other.y + self.z * other.z
     }
 
+    // TODO unit test.
     pub fn cross(&self, other: &Vec3) -> Vec3 {
         Vec3::new(
             self.y * other.z - self.z * other.y,
@@ -69,6 +93,10 @@ impl Vec3 {
         }
     }
 
+    pub fn rz90(&self) -> Vec3 {
+        Vec3::new(-self.y, self.x, self.z)
+    }
+
     pub fn on_axis(&self, axis: &Vec3) -> Vec3 {
         &(self.dot(axis) * axis) / axis.mag2()
     }
@@ -87,6 +115,28 @@ impl Vec3 {
 
     pub fn iz(&self) -> f64 {
         self.z as f64
+    }
+
+    pub fn lerp(a: &Vec3, b: &Vec3, s: f64) -> Vec3 {
+        a.clone()
+            .scale_uniform_mut(1. - s)
+            .sadd_vec_mut(s, b)
+    }
+
+    pub fn bezier2(a: &Vec3, b: &Vec3, c: &Vec3, s: f64) -> Vec3 {
+        Self::lerp(
+            &Self::lerp(a, b, s),
+            &Self::lerp(b, c, s),
+            s
+        )
+    }
+
+    pub fn bezier3(a: &Vec3, b: &Vec3, c: &Vec3, d: &Vec3, s: f64) -> Vec3 {
+        Self::lerp(
+            &Self::bezier2(a, b, c, s),
+            &Self::bezier2(b, c, d, s),
+            s
+        )
     }
 }
 
@@ -112,7 +162,7 @@ impl ops::Add<&Vec3> for Vec3 {
     type Output = Vec3;
 
     fn add(self, rhs: &Vec3) -> Self::Output {
-        self.clone().add_mut(rhs.x, rhs.y, rhs.z)
+        self.clone().add_vec_mut(rhs)
     }
 }
 
@@ -120,7 +170,7 @@ impl ops::Sub<&Vec3> for &Vec3 {
     type Output = Vec3;
 
     fn sub(self, rhs: &Vec3) -> Self::Output {
-        rhs.clone().add_mut(-rhs.x, -rhs.y, -rhs.z)
+        self.clone().sadd_vec_mut(-1., rhs)
     }
 }
 
@@ -144,7 +194,7 @@ impl ops::Mul<&Vec3> for f64 {
     type Output = Vec3;
 
     fn mul(self, rhs: &Vec3) -> Self::Output {
-        rhs.clone().scale_mut(self, self, self)
+        rhs.clone().scale_uniform_mut(self)
     }
 }
 
@@ -160,7 +210,7 @@ impl ops::Div<f64> for &Vec3 {
     type Output = Vec3;
 
     fn div(self, rhs: f64) -> Self::Output {
-        self.clone().scale_mut(1./rhs, 1./rhs, 1./rhs)
+        self.clone().scale_uniform_mut(1./rhs)
     }
 }
 
@@ -177,5 +227,16 @@ impl ops::BitXor<&Vec3> for &Vec3 {
 
     fn bitxor(self, rhs: &Vec3) -> Self::Output {
         self.cross(rhs)
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::threed::*;
+
+    #[test]
+    fn subtraction() {
+        assert_eq!("<1, 2, 3>", (&Vec3::new(4., 5., 6.) - &Vec3::new(3., 3., 3.)).to_string());
     }
 }

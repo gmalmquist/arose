@@ -16,6 +16,18 @@ pub fn current_time_millis() -> f64 {
     chrono::Utc::now().timestamp_millis() as f64
 }
 
+pub fn lerpf(a: f64, b: f64, s: f64) -> f64 {
+    (1. - s) * a + s * b
+}
+
+pub fn bezierf2(a: f64, b: f64, c: f64, s: f64) -> f64 {
+    lerpf(
+        lerpf(a, b, s),
+        lerpf(b, c, s),
+        s
+    )
+}
+
 //
 // #[cfg(test)]
 // mod tests {

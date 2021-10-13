@@ -4,6 +4,7 @@ use wasm_bindgen::prelude::*;
 mod utils;
 mod threed;
 mod canvas;
+mod color;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
