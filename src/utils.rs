@@ -24,7 +24,7 @@ pub fn bezierf2(a: f64, b: f64, c: f64, s: f64) -> f64 {
     lerpf(
         lerpf(a, b, s),
         lerpf(b, c, s),
-        s
+        s,
     )
 }
 

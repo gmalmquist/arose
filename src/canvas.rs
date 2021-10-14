@@ -5,6 +5,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::__rt::core::f64::consts::PI;
 use js_sys::Math;
+use crate::sdf::find_closest_point;
 
 #[wasm_bindgen]
 extern "C" {
@@ -47,6 +48,7 @@ pub struct Canvas {
     handles: Vec<Handle>,
     is_setup: bool,
     dragging_handle: Option<usize>,
+    is_click_frame: bool,
 }
 
 #[wasm_bindgen]
@@ -68,6 +70,7 @@ impl Canvas {
             handles: vec![],
             is_setup: false,
             dragging_handle: None,
+            is_click_frame: false,
         }
     }
 
@@ -100,6 +103,28 @@ impl Canvas {
         }
 
         self.render_rose();
+
+        // for testing
+        self.render_stem_distance();
+
+        self.is_click_frame = false;
+    }
+
+    fn render_stem_distance(&self) {
+        let closest = find_closest_point(
+            &self.mouse,
+            |s| self.stem_bezier(s),
+            self.is_click_frame
+        );
+        let pt = self.stem_bezier(closest);
+
+        self.set_stroke_color(&Color::new(1., 0., 0.));
+        self.g.set_line_width(1.);
+        self.g.begin_path();
+        self.g.move_to(self.mouse.x, self.mouse.y);
+        self.g.line_to(pt.x, pt.y);
+        self.g.stroke();
+        self.g.close_path();
     }
 
     fn render_rose(&self) {
@@ -278,6 +303,7 @@ impl Canvas {
             self.handles[i].pos = self.mouse.clone();
             self.dragging_handle = None;
         }
+        self.is_click_frame = true;
     }
 
     fn circle(&self, pos: &Vec3, radius: f64) {
