@@ -1,11 +1,11 @@
 use crate::utils::{current_time_millis, lerpf};
-use crate::threed::Vec3;
+use crate::threed::{Vec3, Ray};
 use crate::color::Color;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::__rt::core::f64::consts::PI;
 use js_sys::Math;
-use crate::sdf::find_closest_point;
+use crate::sdf::{find_closest_point, raycast, sdf_sphere, sdf_curve};
 
 #[wasm_bindgen]
 extern "C" {
@@ -113,8 +113,7 @@ impl Canvas {
     fn render_stem_distance(&self) {
         let closest = find_closest_point(
             &self.mouse,
-            |s| self.stem_bezier(s),
-            self.is_click_frame
+            |s| self.stem_bezier(s)
         );
         let pt = self.stem_bezier(closest);
 
@@ -125,6 +124,32 @@ impl Canvas {
         self.g.line_to(pt.x, pt.y);
         self.g.stroke();
         self.g.close_path();
+
+        let hit = raycast(
+            &Ray::new(self.mouse.clone(), Vec3::up().flipped()),
+        10000.,
+            &sdf_sphere(Vec3::new(100., self.height/2., 0.), 25.)
+        );
+        if let Some(hit) = hit {
+            self.g.begin_path();
+            self.g.move_to(self.mouse.x, self.mouse.y);
+            self.g.line_to(hit.point.x, hit.point.y);
+            self.g.stroke();
+            self.g.close_path();
+        }
+
+        if let Some(hit) = raycast(
+            &Ray::new(self.mouse.clone(), Vec3::right()),
+            10000.,
+            &|pt| sdf_curve(&|s| self.stem_bezier(s), 5., pt)
+        ) {
+            self.set_stroke_color(&Color::new(0., 0., 1.));
+            self.g.begin_path();
+            self.g.move_to(self.mouse.x, self.mouse.y);
+            self.g.line_to(hit.point.x, hit.point.y);
+            self.g.stroke();
+            self.g.close_path();
+        }
     }
 
     fn render_rose(&self) {

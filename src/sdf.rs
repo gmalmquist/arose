@@ -1,6 +1,7 @@
 use wasm_bindgen::prelude::*;
 
-use crate::threed::Vec3;
+use crate::threed::{Ray, Vec3};
+use js_sys::Math::max;
 
 #[wasm_bindgen]
 extern "C" {
@@ -8,10 +9,56 @@ extern "C" {
     fn log(s: &str);
 }
 
-pub fn find_closest_point<F: Fn(f64) -> Vec3>(point: &Vec3, curve: F, debug: bool) -> f64 {
-    let samples = 100;
+pub struct RayHit {
+    pub point: Vec3,
+    pub normal: Vec3,
+}
 
-    // (s, distance^2)
+fn raymarch<S: Fn(&Vec3) -> f64>(ray: &Ray, maxdist: f64, scene: &S) -> Option<f64> {
+    let eps = 0.001;
+
+    let mut traveled = 0.;
+    let mut sd = scene(&ray.origin);
+    while sd > eps && traveled < maxdist {
+        traveled += sd;
+        sd = scene(&ray.sample(traveled));
+    }
+
+    if sd <= eps {
+        return Some(traveled)
+    }
+
+    None
+}
+
+pub fn raycast<S: Fn(&Vec3) -> f64>(ray: &Ray, maxdist: f64, scene: &S) -> Option<RayHit> {
+    let distance = raymarch(ray, maxdist, scene);
+    if distance.is_none() {
+        return None;
+    }
+    let distance = distance.unwrap();
+
+    let point = ray.sample(distance);
+    let normal = Vec3::new(
+        scene(&Vec3::right()) - scene(&Vec3::right().flipped()),
+        scene(&Vec3::up()) - scene(&Vec3::up().flipped()),
+        scene(&Vec3::forward()) - scene(&Vec3::forward().flipped())
+    ).unit();
+
+    Some(RayHit {
+        point,
+        normal
+    })
+}
+
+pub fn find_closest_point<F: Fn(f64) -> Vec3>(point: &Vec3, curve: F) -> f64 {
+    // approximate the closest point by sampling uniformly along the curve
+    // this is more than enough samples to accurately approximate the closest point for a cubic
+    // (when coupled with the binary search after), but may not be enough for other curves (e.g.
+    // long splines).
+    let samples = 20;
+
+    // (interpolation parameter, distance^2)
     let mut closest_sample: Option<(f64, f64)> = None;
 
     for i in 0..samples {
@@ -26,12 +73,12 @@ pub fn find_closest_point<F: Fn(f64) -> Vec3>(point: &Vec3, curve: F, debug: boo
 
     let closest_sample = closest_sample.unwrap();
 
+    // binary search in the neighborhood of the closest sampled point
     let left = (closest_sample.0 - 1.0 / (samples as f64)).max(0.);
     let right = (closest_sample.0 + 1.0 / (samples as f64)).min((1.));
     let mut left = (left, curve(left).dist2(point));
     let mut right = (right, curve(right).dist2(point));
 
-    // binary search
     let eps = 0.001;
     while right.0 - left.0 > eps {
         // midpoint interpolation parameter
@@ -49,10 +96,6 @@ pub fn find_closest_point<F: Fn(f64) -> Vec3>(point: &Vec3, curve: F, debug: boo
         // right point distance to argument point
         let rd = right.1;
 
-        if debug {
-            log(&format!("L: {:?}, R: {:?}, M: {:?}", left, right, (ms, md)));
-        }
-
         if ld < rd {
             right = (ms, md);
         } else {
@@ -60,9 +103,14 @@ pub fn find_closest_point<F: Fn(f64) -> Vec3>(point: &Vec3, curve: F, debug: boo
         }
     }
 
-    if debug {
-        log(&format!("F: L: {:?} R: {:?}", left, right));
-    }
-
     left.0 / 2. + right.0 / 2.
+}
+
+pub fn sdf_curve<C: Fn(f64) -> Vec3>(curve: &C, thickness: f64, pt: &Vec3) -> f64 {
+    let s = find_closest_point(pt, curve);
+    curve(s).dist(pt) - thickness
+}
+
+pub fn sdf_sphere(origin: Vec3, radius: f64) -> Box<dyn Fn(&Vec3) -> f64> {
+    Box::new(move |pt: &Vec3| pt.dist(&origin) - radius)
 }

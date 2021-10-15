@@ -12,11 +12,23 @@ pub struct Vec3 {
 
 impl Vec3 {
     pub fn new(x: f64, y: f64, z: f64) -> Self {
-        Self { x, y, z}
+        Self { x, y, z }
     }
 
     pub fn zero() -> Self {
         Self::new(0., 0., 0.)
+    }
+
+    pub fn right() -> Self {
+        Self::new(1., 0., 0.)
+    }
+
+    pub fn up() -> Self {
+        Self::new(0., 1., 0.)
+    }
+
+    pub fn forward() -> Self {
+        Self::new(0., 0., 1.)
     }
 
     pub fn set(mut self, x: f64, y: f64, z: f64) -> Self {
@@ -56,12 +68,16 @@ impl Vec3 {
         self.x * other.x + self.y * other.y + self.z * other.z
     }
 
+    pub fn flipped(&self) -> Self {
+        Vec3::new(-self.x, -self.y, -self.z)
+    }
+
     // TODO unit test.
     pub fn cross(&self, other: &Vec3) -> Vec3 {
         Vec3::new(
             self.y * other.z - self.z * other.y,
             self.x * other.z - self.z * other.x,
-            self.z * other.x - self.x * other.z
+            self.z * other.x - self.x * other.z,
         )
     }
 
@@ -70,14 +86,14 @@ impl Vec3 {
     }
 
     pub fn mag(&self) -> f64 {
-       sqrt(self.mag2())
+        sqrt(self.mag2())
     }
 
     pub fn dist2(&self, other: &Vec3) -> f64 {
         let x = other.x - self.x;
         let y = other.y - self.y;
         let z = other.z - self.z;
-        x*x + y*y + z*z
+        x * x + y * y + z * z
     }
 
     pub fn dist(&self, other: &Vec3) -> f64 {
@@ -127,7 +143,7 @@ impl Vec3 {
         Self::lerp(
             &Self::lerp(a, b, s),
             &Self::lerp(b, c, s),
-            s
+            s,
         )
     }
 
@@ -135,7 +151,7 @@ impl Vec3 {
         Self::lerp(
             &Self::bezier2(a, b, c, s),
             &Self::bezier2(b, c, d, s),
-            s
+            s,
         )
     }
 }
@@ -210,7 +226,7 @@ impl ops::Div<f64> for &Vec3 {
     type Output = Vec3;
 
     fn div(self, rhs: f64) -> Self::Output {
-        self.clone().scale_uniform_mut(1./rhs)
+        self.clone().scale_uniform_mut(1. / rhs)
     }
 }
 
@@ -218,7 +234,7 @@ impl ops::Div<&Vec3> for &Vec3 {
     type Output = Vec3;
 
     fn div(self, rhs: &Vec3) -> Self::Output {
-        self.clone().scale_mut(1./rhs.x, 1./rhs.y, 1./rhs.z)
+        self.clone().scale_mut(1. / rhs.x, 1. / rhs.y, 1. / rhs.z)
     }
 }
 
@@ -230,6 +246,27 @@ impl ops::BitXor<&Vec3> for &Vec3 {
     }
 }
 
+#[derive(Clone)]
+pub struct Ray {
+    pub origin: Vec3,
+    pub direction: Vec3,
+}
+
+impl Ray {
+    pub fn new(origin: Vec3, direction: Vec3) -> Self {
+        Self { origin, direction: direction.unit() }
+    }
+
+    pub fn sample(&self, s: f64) -> Vec3 {
+        self.origin.clone().sadd_vec_mut(s, &self.direction)
+    }
+}
+
+impl Display for Ray {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Ray({} -> {})", self.origin, self.direction)
+    }
+}
 
 #[cfg(test)]
 mod tests {
