@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use js_sys::Math::sqrt;
 use wasm_bindgen::__rt::core::ops::{BitXor, Div};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Vec3 {
     pub x: f64,
     pub y: f64,
@@ -174,6 +174,14 @@ impl From<&(usize, usize, usize)> for Vec3 {
     }
 }
 
+impl ops::Add<&Vec3> for &Vec3 {
+    type Output = Vec3;
+
+    fn add(self, rhs: &Vec3) -> Self::Output {
+        self.clone().add_vec_mut(rhs)
+    }
+}
+
 impl ops::Add<&Vec3> for Vec3 {
     type Output = Vec3;
 
@@ -199,6 +207,14 @@ impl ops::Neg for &Vec3 {
 }
 
 impl ops::Mul<f64> for Vec3 {
+    type Output = Vec3;
+
+    fn mul(self, rhs: f64) -> Self::Output {
+        self.clone().scale_mut(rhs, rhs, rhs)
+    }
+}
+
+impl ops::Mul<f64> for &Vec3 {
     type Output = Vec3;
 
     fn mul(self, rhs: f64) -> Self::Output {

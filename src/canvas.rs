@@ -49,6 +49,7 @@ pub struct Canvas {
     is_setup: bool,
     dragging_handle: Option<usize>,
     is_click_frame: bool,
+    user_event: bool,
 }
 
 #[wasm_bindgen]
@@ -71,6 +72,7 @@ impl Canvas {
             is_setup: false,
             dragging_handle: None,
             is_click_frame: false,
+            user_event: false,
         }
     }
 
@@ -89,7 +91,13 @@ impl Canvas {
 
         if !self.is_setup {
             self.setup();
+            self.user_event = true;
         }
+
+        if !self.user_event {
+            return;
+        }
+        self.user_event = false;
 
         self.g.clear_rect(0., 0., self.width, self.height);
         self.set_fill_color(&Color::white());
@@ -113,7 +121,7 @@ impl Canvas {
     fn render_stem_distance(&self) {
         let closest = find_closest_point(
             &self.mouse,
-            |s| self.stem_bezier(s)
+            |s| self.stem_bezier(s),
         );
         let pt = self.stem_bezier(closest);
 
@@ -127,8 +135,8 @@ impl Canvas {
 
         let hit = raycast(
             &Ray::new(self.mouse.clone(), Vec3::up().flipped()),
-        10000.,
-            &sdf_sphere(Vec3::new(100., self.height/2., 0.), 25.)
+            10000.,
+            &sdf_sphere(Vec3::new(100., self.height / 2., 0.), 25.),
         );
         if let Some(hit) = hit {
             self.g.begin_path();
@@ -141,7 +149,7 @@ impl Canvas {
         if let Some(hit) = raycast(
             &Ray::new(self.mouse.clone(), Vec3::right()),
             10000.,
-            &|pt| sdf_curve(&|s| self.stem_bezier(s), 5., pt)
+            &|pt| sdf_curve(&|s| self.stem_bezier(s), 5., pt),
         ) {
             self.set_stroke_color(&Color::new(0., 0., 1.));
             self.g.begin_path();
@@ -157,7 +165,7 @@ impl Canvas {
 
         // stem
         let N = 1000;
-        for i in 0..N {
+        for i in (-2)..(N+2) {
             let s0 = (i as f64) / (N as f64);
             let s1 = ((i + 1) as f64) / (N as f64);
             let pt = self.stem_bezier(s0);
@@ -172,30 +180,39 @@ impl Canvas {
                     s0,
                 );
 
-            let left = pt.clone().sadd_vec_mut(-width, &normal);
-            let right = pt.clone().sadd_vec_mut(width, &normal);
+            let left = pt.clone().sadd_vec_mut(-(width + 2.), &normal);
+            let right = pt.clone().sadd_vec_mut((width + 2.), &normal);
+
+            let light_pos = Vec3::new(
+                self.width * 0.75,
+                self.height / 2.,
+                -self.width * 0.25,
+            );
 
             let K = 10;
             for j in 0..K {
                 let f = (j as f64) / (K as f64);
                 let pt = Vec3::lerp(&left, &right, f);
-                self.set_fill_color(&Color::white()
-                    .scale(lerpf(0., 0.8, Math::sin(f * PI / 2.))));
+                //self.set_fill_color(&Color::white()
+                //    .scale(lerpf(0., 0.8, Math::sin(f * PI / 2.))));
+                if let Some(hit) = raycast(
+                    &Ray::new(Vec3::new(pt.x, pt.y, -10.), Vec3::forward()),
+                    1000.,
+                    &|pt| sdf_curve(&|s| self.stem_bezier(s), width, pt),
+                ) {
+                    let light_dir = (&light_pos - &hit.point).unit();
+                    let diffuse = hit.normal.dot(&light_dir).max(0.);
+                    let ambient = 0.2;
+                    let albedo = ambient + diffuse;
+                    if i == 500 {
+                        log(&format!("hit:\n{:?},\nL: {},\nd: {}", hit, light_dir, diffuse));
+                    }
+                    self.set_fill_color(&Color::white().scale(albedo));
+                } else {
+                    self.set_fill_color(&Color::black());
+                }
                 self.g.fill_rect(pt.x, pt.y, 1., 1.);
             }
-
-            self.g.set_line_width(2.);
-            self.g.begin_path();
-            self.g.move_to(left.x, left.y);
-            self.g.line_to(pt2.x - width * normal.x, pt2.y - width * normal.y);
-            self.g.stroke();
-            self.g.close_path();
-
-            self.g.begin_path();
-            self.g.move_to(right.x, right.y);
-            self.g.line_to(pt2.x + width * normal.x, pt2.y + width * normal.y);
-            self.g.stroke();
-            self.g.close_path();
         }
     }
 
@@ -292,6 +309,7 @@ impl Canvas {
 
     pub fn handle_key_down(&mut self, chr: &str) {
         //log(&format!("keydown: '{}'", chr));
+        self.user_event = true;
     }
 
     pub fn handle_mouse_move(&mut self, x: f64, y: f64) {
@@ -303,6 +321,8 @@ impl Canvas {
             let hovering = self.handles[i].contains_mouse(&self.mouse);
             self.handles[i].set_hovered(hovering);
         }
+
+        self.user_event = true;
     }
 
     pub fn handle_mouse_down(&mut self, x: f64, y: f64) {
@@ -319,6 +339,8 @@ impl Canvas {
             .map(|h| h.pos.to_string())
             .collect::<Vec<_>>()
             .join(", ")));
+
+        self.user_event = true;
     }
 
     pub fn handle_mouse_up(&mut self, x: f64, y: f64) {
@@ -329,6 +351,7 @@ impl Canvas {
             self.dragging_handle = None;
         }
         self.is_click_frame = true;
+        self.user_event = true;
     }
 
     fn circle(&self, pos: &Vec3, radius: f64) {

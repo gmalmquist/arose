@@ -9,6 +9,7 @@ extern "C" {
     fn log(s: &str);
 }
 
+#[derive(Clone, Debug)]
 pub struct RayHit {
     pub point: Vec3,
     pub normal: Vec3,
@@ -38,11 +39,16 @@ pub fn raycast<S: Fn(&Vec3) -> f64>(ray: &Ray, maxdist: f64, scene: &S) -> Optio
     }
     let distance = distance.unwrap();
 
+    let eps = 0.001;
+    let x = Vec3::right().scale_uniform_mut(eps);
+    let y = Vec3::up().scale_uniform_mut(eps);
+    let z = Vec3::forward().scale_uniform_mut(eps);
+
     let point = ray.sample(distance);
     let normal = Vec3::new(
-        scene(&Vec3::right()) - scene(&Vec3::right().flipped()),
-        scene(&Vec3::up()) - scene(&Vec3::up().flipped()),
-        scene(&Vec3::forward()) - scene(&Vec3::forward().flipped())
+        scene(&(&point + &x)) - scene(&(&point - &x)),
+        scene(&(&point + &y)) - scene(&(&point - &y)),
+        scene(&(&point + &z)) - scene(&(&point - &z))
     ).unit();
 
     Some(RayHit {
