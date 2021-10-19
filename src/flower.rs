@@ -33,7 +33,7 @@ impl Flower {
     fn stem_thickness(&self, s: f64) -> f64 {
         lerpf(
             lerpf(0., 5., (s * 25.).min(1.)),
-            4.,
+            lerpf(4., 3., s),
             s,
         )
     }

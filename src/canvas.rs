@@ -142,7 +142,7 @@ impl Canvas {
                 // TODO anti-alias.
                 if let Some(hit) = raycast(
                     &Ray::new(Vec3::new(x, y, -10.), Vec3::forward()),
-                    1000.,
+                    100.,
                     &|s| flower.distance(s) - 2.,
                 ) {
                     self.set_fill_color(&Color::black());
@@ -209,7 +209,7 @@ impl Canvas {
 
             if let Some(hit) = raycast(
                 &Ray::new(Vec3::new(pt.x, pt.y, -10.), Vec3::forward()),
-                1000.,
+                100.,
                 &|s| flower.distance(s),
             ) {
                 let light_dir = (&light_pos - &hit.point).unit();
