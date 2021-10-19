@@ -103,7 +103,8 @@ impl Canvas {
             self.set_fill_color(&Color::white());
             self.g.fill_rect(0., 0., self.width, self.height);
 
-            self.render_handle_bezier();
+            //self.render_handle_bezier();
+
             self.render_control_lines();
 
             for i in 0..self.handles.len() {
@@ -121,6 +122,14 @@ impl Canvas {
         let start_time_millis = current_time_millis() as u64;
         let deadline = start_time_millis + 10u64; // 10ms in the future
 
+        let flower = {
+            let mut flower = Flower::new();
+            flower.update_controls(&self.handles.iter()
+                .map({ |h| h.pos.clone() })
+                .collect());
+            flower
+        };
+
         let length = self.width as usize * self.height as usize;
         while (current_time_millis() as u64) < deadline {
             let y = self.height - 1. - (self.render_pixel / (self.width as usize)) as f64;
@@ -129,7 +138,19 @@ impl Canvas {
                 self.set_fill_color(&Color::black());
                 self.g.fill_rect(x, y, 1., 1.);
             } else {
-                self.render_rose(x, y);
+                // render outline
+                // TODO anti-alias.
+                if let Some(hit) = raycast(
+                    &Ray::new(Vec3::new(x, y, -10.), Vec3::forward()),
+                    1000.,
+                    &|s| flower.distance(s) - 2.,
+                ) {
+                    self.set_fill_color(&Color::black());
+                    self.g.fill_rect(x, y, 1., 1.);
+                }
+
+                // render shaded rose
+                self.render_rose(&flower, x, y);
             }
             self.render_pixel = {
                 let next = self.render_pixel + 1;
@@ -144,12 +165,7 @@ impl Canvas {
         self.is_click_frame = false;
     }
 
-    fn render_rose(&self, x: f64, y: f64) {
-        let mut flower = Flower::new();
-        flower.update_controls(&self.handles.iter()
-            .map({ |h| h.pos.clone() })
-            .collect());
-
+    fn render_rose(&self, flower: &Flower, x: f64, y: f64) {
         let light_pos = Vec3::new(
             self.width * 0.75,
             self.height / 2.,
@@ -159,41 +175,61 @@ impl Canvas {
         let mut result_color = Color::black();
         let mut hits = 0;
 
-        let eps = 1.0;
-        let sigma = 0.5;
+        // blur sample step
+        let eps = 0.5;
+
+        // blur controls
+        let sigma = 1.;
+
+        // NB: set to 3 for nice blurring, 1 for speed
         let window_size = 1;
+
+        let mut deltas = vec![];
+
         for ix in 0..window_size {
             let dx = (ix - window_size / 2) as f64;
             for iy in 0..window_size {
                 let dy = (iy - window_size / 2) as f64;
+                deltas.push((dx, dy));
+            }
+        }
 
-                let pt = Vec3::new(
-                    x + dx as f64 * eps,
-                    y + dy as f64 * eps,
-                    0.,
-                );
+        let total_alpha = deltas.iter()
+            .map({ |(dx, dy)| gaussian_blur(sigma, *dx, *dy) })
+            .fold(0., |a, b| { a + b });
 
-                if let Some(hit) = raycast(
-                    &Ray::new(Vec3::new(pt.x, pt.y, -10.), Vec3::forward()),
-                    1000.,
-                    &|s| flower.distance(s),
-                ) {
-                    let light_dir = (&light_pos - &hit.point).unit();
-                    let diffuse = hit.normal.dot(&light_dir).max(0.);
-                    let ambient = 0.2;
-                    let albedo = ambient + diffuse;
-                    let c = Color::white().scale(albedo);
+        for (dx, dy) in deltas {
+            let g = gaussian_blur(sigma, dx, dy) / total_alpha;
 
-                    result_color = &result_color + &(&c * gaussian_blur(sigma, dx as f64, dy as f64));
+            let pt = Vec3::new(
+                x + dx as f64 * eps,
+                y + dy as f64 * eps,
+                0.,
+            );
 
-                    hits += 1;
-                }
+            if let Some(hit) = raycast(
+                &Ray::new(Vec3::new(pt.x, pt.y, -10.), Vec3::forward()),
+                1000.,
+                &|s| flower.distance(s),
+            ) {
+                let light_dir = (&light_pos - &hit.point).unit();
+                let diffuse = hit.normal.dot(&light_dir).max(0.);
+                let ambient = 0.2;
+                let albedo = ambient + diffuse;
+                let c = Color::white().scale(albedo);
+
+                result_color = &result_color + &(&c * g);
+                hits += 1;
+            } else {
+                result_color = &result_color + &Color::white().scale(g);
             }
         }
 
         if hits == 0 {
             return;
         }
+
+        //result_color = &result_color + &Color::white().scale(1.0 - total_alpha);
 
         self.set_fill_color(&result_color);
         self.g.fill_rect(x, y, 1., 1.);

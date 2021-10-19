@@ -1,5 +1,5 @@
 use chrono;
-use js_sys::Math::{exp, sqrt};
+use js_sys::Math::{exp, sqrt, pow, log2};
 use wasm_bindgen::__rt::core::f64::consts::PI;
 
 pub fn set_panic_hook() {
@@ -31,7 +31,12 @@ pub fn bezierf2(a: f64, b: f64, c: f64, s: f64) -> f64 {
 
 pub fn gaussian_blur(sigma: f64, x: f64, y: f64) -> f64 {
     // https://en.wikipedia.org/wiki/Gaussian_blur
-    1. / (2. * PI * sigma * sigma) * exp(-(x*x + y*y) / (2. * sigma * sigma))
+    1. / (2. * PI * sigma * sigma) * exp(-(x * x + y * y) / (2. * sigma * sigma))
+}
+
+pub fn exp_smin(a: f64, b: f64, k: f64) -> f64 {
+    let res = pow(2., -k * a) + pow(2., -k * b);
+    return -log2(res) / k;
 }
 
 //

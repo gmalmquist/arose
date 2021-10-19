@@ -1,7 +1,7 @@
 use crate::sdf;
 use crate::sdf::{find_closest_point, sdf_curve};
 use crate::threed::Vec3;
-use crate::utils::lerpf;
+use crate::utils::{lerpf, exp_smin};
 
 pub struct Flower {
     control_points: Vec<Vec3>,
@@ -47,22 +47,66 @@ impl Flower {
             &|s| self.stem_thickness(s),
             pt));
 
-        // bottom leaf
+        distances.push(self.bottom_leaf(pt));
+        distances.push(self.top_leaf(pt));
+        distances.push(self.middle_leaf(pt));
+
+        let mut sd: Option<f64> = None;
+        for d in distances {
+            sd = Some(match sd {
+                None => d,
+                Some(sd) => exp_smin(sd, d, 2.),
+            });
+        }
+        sd.unwrap()
+    }
+
+    fn bottom_leaf(&self, pt: &Vec3) -> f64 {
         let branch_pt = self.stem_bezier(0.15);
-        distances.push(sdf_curve(&|s| Vec3::bezier2(
+        sdf_curve(&|s| Vec3::bezier2(
             &branch_pt,
             &(&branch_pt + &Vec3::new(-50., -60., 0.)),
             &(&branch_pt + &Vec3::new(-100., -80., 0.)),
             s,
-        ), &|s| lerpf(5., 1., s), pt));
+        ), &|s| lerpf(4., 1., s), pt)
+    }
 
-        let mut sd: Option<f64> = None;
-        for d in distances {
-            if sd.is_none() || sd.unwrap() > d {
-                sd = Some(d);
-            }
-        }
-        sd.unwrap()
+    fn top_leaf(&self, pt: &Vec3) -> f64 {
+        let branch_pt = self.stem_bezier(0.55);
+        sdf_curve(&|s| Vec3::bezier2(
+            &branch_pt,
+            &(&branch_pt + &Vec3::new(-50., -60., 0.)),
+            &(&branch_pt + &Vec3::new(-90., -90., 0.)),
+            s,
+        ), &|s| lerpf(4., 1., s), pt)
+    }
+
+    fn middle_leaf(&self, pt: &Vec3) -> f64 {
+        let branch_pt = self.stem_bezier(0.45);
+        let stem_pos = |s: f64| Vec3::bezier2(
+            &branch_pt,
+            &(&branch_pt + &Vec3::new(40., -120., 0.)),
+            &(&branch_pt + &Vec3::new(20., -160., 0.)),
+            s,
+        );
+        let stem_thickness = |s: f64| lerpf(4., 1., s);
+
+        let branch_s = 0.23;
+
+        exp_smin(
+            sdf_curve(&stem_pos, &stem_thickness, pt),
+            sdf_curve(
+                &|s: f64| &stem_pos(branch_s) + &Vec3::bezier2(
+                    &Vec3::zero(),
+                    &Vec3::new(70., -50., 0.),
+                    &Vec3::new(50., -90., 0.),
+                    s
+                ),
+                &|s: f64| lerpf(stem_thickness(branch_s), 1., s),
+                pt
+            ),
+            2.,
+        )
     }
 
     fn stem_bezier(&self, s: f64) -> Vec3 {
