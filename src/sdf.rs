@@ -1,7 +1,7 @@
 use wasm_bindgen::prelude::*;
 
 use crate::threed::{Ray, Vec3};
-use js_sys::Math::max;
+use js_sys::Math::{max, sqrt};
 
 #[wasm_bindgen]
 extern "C" {
@@ -26,7 +26,7 @@ fn raymarch<S: Fn(&Vec3) -> f64>(ray: &Ray, maxdist: f64, scene: &S) -> Option<f
     }
 
     if sd <= eps {
-        return Some(traveled)
+        return Some(traveled);
     }
 
     None
@@ -48,12 +48,12 @@ pub fn raycast<S: Fn(&Vec3) -> f64>(ray: &Ray, maxdist: f64, scene: &S) -> Optio
     let normal = Vec3::new(
         scene(&(&point + &x)) - scene(&(&point - &x)),
         scene(&(&point + &y)) - scene(&(&point - &y)),
-        scene(&(&point + &z)) - scene(&(&point - &z))
+        scene(&(&point + &z)) - scene(&(&point - &z)),
     ).unit();
 
     Some(RayHit {
         point,
-        normal
+        normal,
     })
 }
 
@@ -116,6 +116,26 @@ pub fn sdf_curve<C: Fn(f64) -> Vec3, T: Fn(f64) -> f64>(
     curve: &C,
     thickness: &T,
     pt: &Vec3) -> f64 {
+    let controls: Vec<(Vec3, f64)> = (0..10)
+        .map(|i| (curve(i as f64 / 9.), i as f64 / 9.))
+        .collect();
+    let centroid = controls.iter()
+        .map(|v| v.0.clone())
+        .fold(Vec3::zero(), |a, b| &a + &b)
+        .scale_uniform_mut(1. / controls.len() as f64);
+    let radius2 = controls.iter()
+        .map(|(p, s)| (p.dist2(&centroid), s))
+        .map(|(d, s)| Some(d + thickness(*s)))
+        .fold(None as Option<f64>, |a, b| Some(match a {
+            None => b.unwrap(),
+            Some(f) => if f > b.unwrap() { f } else { b.unwrap() }
+        }))
+        .unwrap();
+    let radius = sqrt(radius2);
+    if centroid.dist(pt) > radius * 1.05 {
+        return centroid.dist(pt) - radius;
+    }
+
     let s = find_closest_point(pt, curve);
     curve(s).dist(pt) - thickness(s)
 }

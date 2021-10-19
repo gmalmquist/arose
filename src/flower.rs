@@ -1,10 +1,84 @@
 use crate::sdf;
 use crate::sdf::{find_closest_point, sdf_curve};
-use crate::threed::Vec3;
+use crate::threed::{Vec3, Frame};
 use crate::utils::{lerpf, exp_smin};
+
+struct LeafGen {
+    vein_pairs: usize,
+
+    base_offset: f64,
+
+    // in a basis where vein-tip to vein-tip is (0, 0, 0) to (1, 0, 0),
+    // +y is away from the leaf
+    // +z is above the top of the leaf
+    margin_shape: Box<dyn Fn(f64) -> Vec3>,
+
+    vein_shape: Box<dyn Fn(f64) -> Vec3>,
+}
+
+impl LeafGen {
+    pub fn vein_distance<C: Fn(f64) -> (Vec3, f64)>(&self, midrib_curve: &C, pt: &Vec3) -> f64 {
+        let mut distance: Option<f64> = None;
+
+        for pair_no in 0..self.vein_pairs {
+            let t = pair_no as f64 / self.vein_pairs as f64;
+            let d = sdf_curve(
+                &|s| self.rib_point(midrib_curve, pair_no, s),
+                &|s| 1.,
+                pt);
+            distance = Some(match distance {
+                None => d,
+                Some(sd) => exp_smin(sd, d, 2.),
+            });
+        }
+
+        distance.unwrap()
+    }
+
+    pub fn base_position<C: Fn(f64) -> (Vec3, f64)>(&self, midrib_curve: &C) -> Vec3 {
+        midrib_curve(self.base_offset).0
+    }
+
+    pub fn rib_point<C: Fn(f64) -> (Vec3, f64)>(
+        &self,
+        midrib_curve: &C,
+        index: usize,
+        s: f64) -> Vec3 {
+        let start_t = lerpf(self.base_offset, 1., index as f64 / self.vein_pairs as f64);
+        let blade_frame = self.blade_frame(&midrib_curve, start_t);
+
+        let local: Vec3 = (self.vein_shape)(s);
+
+        blade_frame.project(&local)
+    }
+
+    pub fn blade_frame<C: Fn(f64) -> (Vec3, f64)>(&self, midrib_curve: &C, s: f64) -> Frame {
+        let (origin, _rotation) = midrib_curve(s);
+        let length: f64 = (&midrib_curve(1.).0 - &midrib_curve(self.base_offset).0).mag();
+        let (next_pos, _) = midrib_curve(s + 0.01);
+        let tipward: Vec3 = (&next_pos - &origin).unit();
+        let (upward, sidward) = {
+            let up = Vec3::new(0., 0., -1.);
+            let side = tipward.cross(&up);
+            if side.is_zero(0.0001) {
+                (Vec3::right(), tipward.cross(&Vec3::right()).unit())
+            } else {
+                (up, side.unit())
+            }
+        };
+
+        Frame::new(
+            origin,
+            sidward.scale_uniform_mut(length),
+            tipward.scale_uniform_mut(length),
+            upward.scale_uniform_mut(length)
+        )
+    }
+}
 
 pub struct Flower {
     control_points: Vec<Vec3>,
+    leaf_gen: LeafGen,
 }
 
 impl Flower {
@@ -16,6 +90,12 @@ impl Flower {
                 Vec3::zero(),
                 Vec3::zero(),
             ],
+            leaf_gen: LeafGen {
+                vein_pairs: 6,
+                base_offset: 0.1,
+                margin_shape: Box::new(|s: f64| Vec3::lerp(&Vec3::zero(), &Vec3::right(), s)),
+                vein_shape: Box::new(|s: f64| Vec3::lerp(&Vec3::zero(), &Vec3::right(), s)),
+            },
         }
     }
 
@@ -27,7 +107,7 @@ impl Flower {
     }
 
     pub fn distance(&self, point: &Vec3) -> f64 {
-        self.rose_sdf(point)
+        self.vascular_sdf(point)
     }
 
     fn stem_thickness(&self, s: f64) -> f64 {
@@ -38,7 +118,7 @@ impl Flower {
         )
     }
 
-    fn rose_sdf(&self, pt: &Vec3) -> f64 {
+    fn vascular_sdf(&self, pt: &Vec3) -> f64 {
         let mut distances: Vec<f64> = vec![];
 
         // stem
@@ -61,14 +141,23 @@ impl Flower {
         sd.unwrap()
     }
 
+    fn leaf<C: Fn(f64) -> (Vec3, f64)>(&self, midrib: &C, pt: &Vec3) -> f64 {
+        self.leaf_gen.vein_distance(&midrib, pt)
+    }
+
     fn bottom_leaf(&self, pt: &Vec3) -> f64 {
         let branch_pt = self.stem_bezier(0.15);
-        sdf_curve(&|s| Vec3::bezier2(
+        let midrib = |s: f64| Vec3::bezier2(
             &branch_pt,
             &(&branch_pt + &Vec3::new(-50., -60., 0.)),
             &(&branch_pt + &Vec3::new(-100., -80., 0.)),
             s,
-        ), &|s| lerpf(4., 1., s), pt)
+        );
+        exp_smin(
+            sdf_curve(&midrib, &|s| lerpf(4., 1., s), pt),
+            self.leaf_gen.vein_distance(&|s| (midrib(s), 0.), pt),
+            2.,
+        )
     }
 
     fn top_leaf(&self, pt: &Vec3) -> f64 {
@@ -100,10 +189,10 @@ impl Flower {
                     &Vec3::zero(),
                     &Vec3::new(70., -50., 0.),
                     &Vec3::new(50., -90., 0.),
-                    s
+                    s,
                 ),
                 &|s: f64| lerpf(stem_thickness(branch_s), 1., s),
-                pt
+                pt,
             ),
             2.,
         )

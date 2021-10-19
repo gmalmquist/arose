@@ -64,6 +64,10 @@ impl Vec3 {
         self.scale_mut(s, s, s)
     }
 
+    pub fn is_zero(&self, eps: f64) -> bool {
+        self.x.abs() < eps && self.y.abs() < eps && self.z.abs() < eps
+    }
+
     pub fn dot(&self, other: &Vec3) -> f64 {
         self.x * other.x + self.y * other.y + self.z * other.z
     }
@@ -72,13 +76,23 @@ impl Vec3 {
         Vec3::new(-self.x, -self.y, -self.z)
     }
 
-    // TODO unit test.
     pub fn cross(&self, other: &Vec3) -> Vec3 {
+        let (a1, a2, a3) = (self.x, self.y, self.z);
+        let (b1, b2, b3) = (other.x, other.y, other.z);
         Vec3::new(
-            self.y * other.z - self.z * other.y,
-            self.x * other.z - self.z * other.x,
-            self.z * other.x - self.x * other.z,
+            a2 * b3 - a3 * b2,
+            a3 * b1 - a1 * b3,
+            a1 * b2 - a2 * b1,
         )
+    }
+
+    pub fn norm(&self, other: &Vec3) -> Vec3 {
+        let mut cross = self.cross(other);
+        let mag = cross.mag();
+        if mag == 0. || mag == 1. {
+            return cross;
+        }
+        cross.scale_uniform_mut(1. / mag)
     }
 
     pub fn mag2(&self) -> f64 {
@@ -259,6 +273,69 @@ impl ops::BitXor<&Vec3> for &Vec3 {
 
     fn bitxor(self, rhs: &Vec3) -> Self::Output {
         self.cross(rhs)
+    }
+}
+
+#[derive(Clone)]
+pub struct Basis {
+    axes: Vec<Vec3>,
+}
+
+impl Basis {
+    pub fn new(x: Vec3, y: Vec3, z: Vec3) -> Self {
+        Self {
+            axes: vec![x, y, z],
+        }
+    }
+
+    pub fn identity() -> Self {
+        Self::new(Vec3::right(), Vec3::up(), Vec3::forward())
+    }
+
+    pub fn project(&self, local_vec: &Vec3) -> Vec3 {
+        Vec3::zero()
+            .sadd_vec_mut(local_vec.x, &self.axes[0])
+            .sadd_vec_mut(local_vec.y, &self.axes[1])
+            .sadd_vec_mut(local_vec.z, &self.axes[2])
+    }
+
+    pub fn unproject(&self, global_vec: &Vec3) -> Vec3 {
+        Vec3::new(
+            global_vec.dot(&self.axes[0]) / self.axes[0].mag2(),
+            global_vec.dot(&self.axes[1]) / self.axes[1].mag2(),
+            global_vec.dot(&self.axes[2]) / self.axes[2].mag2()
+        )
+    }
+}
+
+#[derive(Clone)]
+pub struct Frame {
+    origin: Vec3,
+    basis: Basis,
+}
+
+impl Frame {
+    pub fn new(origin: Vec3, x: Vec3, y: Vec3, z: Vec3) -> Self {
+        Self::from_basis(origin, Basis::new(x, y, z))
+    }
+
+    pub fn from_basis(origin: Vec3, basis: Basis) -> Self {
+        Self {
+            origin,
+            basis
+        }
+    }
+
+    pub fn identity() -> Self {
+        Self::from_basis(Vec3::zero(), Basis::identity())
+    }
+
+    pub fn project(&self, local_point: &Vec3) -> Vec3 {
+        self.basis.project(local_point).add_vec_mut(&self.origin)
+    }
+
+    pub fn unproject(&self, global_point: &Vec3) -> Vec3 {
+        self.basis.unproject(&(global_point - &self.origin))
     }
 }
 

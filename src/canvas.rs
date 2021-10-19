@@ -137,6 +137,8 @@ impl Canvas {
             if x > self.width * 0.99 {
                 self.set_fill_color(&Color::black());
                 self.g.fill_rect(x, y, 1., 1.);
+            } else if x > self.width / 2. {
+                // noop hack
             } else {
                 // render outline
                 // TODO anti-alias.
