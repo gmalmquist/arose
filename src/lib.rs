@@ -6,6 +6,7 @@ mod threed;
 mod canvas;
 mod color;
 mod sdf;
+mod flower;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.

@@ -1,5 +1,6 @@
 use chrono;
-use js_sys::Math::sqrt;
+use js_sys::Math::{exp, sqrt};
+use wasm_bindgen::__rt::core::f64::consts::PI;
 
 pub fn set_panic_hook() {
     // When the `console_error_panic_hook` feature is enabled, we can call the
@@ -26,6 +27,11 @@ pub fn bezierf2(a: f64, b: f64, c: f64, s: f64) -> f64 {
         lerpf(b, c, s),
         s,
     )
+}
+
+pub fn gaussian_blur(sigma: f64, x: f64, y: f64) -> f64 {
+    // https://en.wikipedia.org/wiki/Gaussian_blur
+    1. / (2. * PI * sigma * sigma) * exp(-(x*x + y*y) / (2. * sigma * sigma))
 }
 
 //

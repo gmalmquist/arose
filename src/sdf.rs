@@ -112,9 +112,12 @@ pub fn find_closest_point<F: Fn(f64) -> Vec3>(point: &Vec3, curve: F) -> f64 {
     left.0 / 2. + right.0 / 2.
 }
 
-pub fn sdf_curve<C: Fn(f64) -> Vec3>(curve: &C, thickness: f64, pt: &Vec3) -> f64 {
+pub fn sdf_curve<C: Fn(f64) -> Vec3, T: Fn(f64) -> f64>(
+    curve: &C,
+    thickness: &T,
+    pt: &Vec3) -> f64 {
     let s = find_closest_point(pt, curve);
-    curve(s).dist(pt) - thickness
+    curve(s).dist(pt) - thickness(s)
 }
 
 pub fn sdf_sphere(origin: Vec3, radius: f64) -> Box<dyn Fn(&Vec3) -> f64> {

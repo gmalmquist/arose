@@ -1,11 +1,13 @@
-use crate::utils::{current_time_millis, lerpf};
-use crate::threed::{Vec3, Ray};
-use crate::color::Color;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use wasm_bindgen::__rt::core::f64::consts::PI;
 use js_sys::Math;
-use crate::sdf::{find_closest_point, raycast, sdf_sphere, sdf_curve};
+use wasm_bindgen::__rt::core::f64::consts::PI;
+use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::*;
+
+use crate::color::Color;
+use crate::flower::Flower;
+use crate::sdf::{find_closest_point, raycast, sdf_sphere};
+use crate::threed::{Ray, Vec3};
+use crate::utils::{current_time_millis, lerpf, gaussian_blur};
 
 #[wasm_bindgen]
 extern "C" {
@@ -50,6 +52,7 @@ pub struct Canvas {
     dragging_handle: Option<usize>,
     is_click_frame: bool,
     user_event: bool,
+    render_pixel: usize,
 }
 
 #[wasm_bindgen]
@@ -73,6 +76,7 @@ impl Canvas {
             dragging_handle: None,
             is_click_frame: false,
             user_event: false,
+            render_pixel: 0,
         }
     }
 
@@ -94,136 +98,105 @@ impl Canvas {
             self.user_event = true;
         }
 
-        if !self.user_event {
+        if self.user_event {
+            self.g.clear_rect(0., 0., self.width, self.height);
+            self.set_fill_color(&Color::white());
+            self.g.fill_rect(0., 0., self.width, self.height);
+
+            self.render_handle_bezier();
+            self.render_control_lines();
+
+            for i in 0..self.handles.len() {
+                self.render_handle(&self.handles[i]);
+            }
+
+            self.render_pixel = 0;
+        }
+
+        if !self.user_event && self.render_pixel == 0 {
             return;
         }
         self.user_event = false;
 
-        self.g.clear_rect(0., 0., self.width, self.height);
-        self.set_fill_color(&Color::white());
-        self.g.fill_rect(0., 0., self.width, self.height);
+        let start_time_millis = current_time_millis() as u64;
+        let deadline = start_time_millis + 10u64; // 10ms in the future
 
-        self.render_handle_bezier();
-        self.render_control_lines();
-
-        for i in 0..self.handles.len() {
-            self.render_handle(&self.handles[i]);
+        let length = self.width as usize * self.height as usize;
+        while (current_time_millis() as u64) < deadline {
+            let y = self.height - 1. - (self.render_pixel / (self.width as usize)) as f64;
+            let x = (self.render_pixel % (self.width as usize)) as f64;
+            if x > self.width * 0.99 {
+                self.set_fill_color(&Color::black());
+                self.g.fill_rect(x, y, 1., 1.);
+            } else {
+                self.render_rose(x, y);
+            }
+            self.render_pixel = {
+                let next = self.render_pixel + 1;
+                if next >= length {
+                    next - length
+                } else {
+                    next
+                }
+            };
         }
-
-        self.render_rose();
-
-        // for testing
-        self.render_stem_distance();
 
         self.is_click_frame = false;
     }
 
-    fn render_stem_distance(&self) {
-        let closest = find_closest_point(
-            &self.mouse,
-            |s| self.stem_bezier(s),
+    fn render_rose(&self, x: f64, y: f64) {
+        let mut flower = Flower::new();
+        flower.update_controls(&self.handles.iter()
+            .map({ |h| h.pos.clone() })
+            .collect());
+
+        let light_pos = Vec3::new(
+            self.width * 0.75,
+            self.height / 2.,
+            -self.width * 0.25,
         );
-        let pt = self.stem_bezier(closest);
 
-        self.set_stroke_color(&Color::new(1., 0., 0.));
-        self.g.set_line_width(1.);
-        self.g.begin_path();
-        self.g.move_to(self.mouse.x, self.mouse.y);
-        self.g.line_to(pt.x, pt.y);
-        self.g.stroke();
-        self.g.close_path();
+        let mut result_color = Color::black();
+        let mut hits = 0;
 
-        let hit = raycast(
-            &Ray::new(self.mouse.clone(), Vec3::up().flipped()),
-            10000.,
-            &sdf_sphere(Vec3::new(100., self.height / 2., 0.), 25.),
-        );
-        if let Some(hit) = hit {
-            self.g.begin_path();
-            self.g.move_to(self.mouse.x, self.mouse.y);
-            self.g.line_to(hit.point.x, hit.point.y);
-            self.g.stroke();
-            self.g.close_path();
-        }
+        let eps = 1.0;
+        let sigma = 0.5;
+        let window_size = 1;
+        for ix in 0..window_size {
+            let dx = (ix - window_size / 2) as f64;
+            for iy in 0..window_size {
+                let dy = (iy - window_size / 2) as f64;
 
-        if let Some(hit) = raycast(
-            &Ray::new(self.mouse.clone(), Vec3::right()),
-            10000.,
-            &|pt| sdf_curve(&|s| self.stem_bezier(s), 5., pt),
-        ) {
-            self.set_stroke_color(&Color::new(0., 0., 1.));
-            self.g.begin_path();
-            self.g.move_to(self.mouse.x, self.mouse.y);
-            self.g.line_to(hit.point.x, hit.point.y);
-            self.g.stroke();
-            self.g.close_path();
-        }
-    }
-
-    fn render_rose(&self) {
-        self.set_stroke_color(&Color::black());
-
-        // stem
-        let N = 1000;
-        for i in (-2)..(N+2) {
-            let s0 = (i as f64) / (N as f64);
-            let s1 = ((i + 1) as f64) / (N as f64);
-            let pt = self.stem_bezier(s0);
-            let pt2 = self.stem_bezier(s1);
-            let tangent = (&pt2 - &pt).unit();
-            let normal = &tangent.rz90();
-
-            let width =
-                lerpf(
-                    lerpf(0., 5., (s0 * 25.).min(1.)),
-                    4.,
-                    s0,
+                let pt = Vec3::new(
+                    x + dx as f64 * eps,
+                    y + dy as f64 * eps,
+                    0.,
                 );
 
-            let left = pt.clone().sadd_vec_mut(-(width + 2.), &normal);
-            let right = pt.clone().sadd_vec_mut((width + 2.), &normal);
-
-            let light_pos = Vec3::new(
-                self.width * 0.75,
-                self.height / 2.,
-                -self.width * 0.25,
-            );
-
-            let K = 10;
-            for j in 0..K {
-                let f = (j as f64) / (K as f64);
-                let pt = Vec3::lerp(&left, &right, f);
-                //self.set_fill_color(&Color::white()
-                //    .scale(lerpf(0., 0.8, Math::sin(f * PI / 2.))));
                 if let Some(hit) = raycast(
                     &Ray::new(Vec3::new(pt.x, pt.y, -10.), Vec3::forward()),
                     1000.,
-                    &|pt| sdf_curve(&|s| self.stem_bezier(s), width, pt),
+                    &|s| flower.distance(s),
                 ) {
                     let light_dir = (&light_pos - &hit.point).unit();
                     let diffuse = hit.normal.dot(&light_dir).max(0.);
                     let ambient = 0.2;
                     let albedo = ambient + diffuse;
-                    if i == 500 {
-                        log(&format!("hit:\n{:?},\nL: {},\nd: {}", hit, light_dir, diffuse));
-                    }
-                    self.set_fill_color(&Color::white().scale(albedo));
-                } else {
-                    self.set_fill_color(&Color::black());
+                    let c = Color::white().scale(albedo);
+
+                    result_color = &result_color + &(&c * gaussian_blur(sigma, dx as f64, dy as f64));
+
+                    hits += 1;
                 }
-                self.g.fill_rect(pt.x, pt.y, 1., 1.);
             }
         }
-    }
 
-    fn stem_bezier(&self, s: f64) -> Vec3 {
-        Vec3::bezier3(
-            &self.handles[0].pos,
-            &self.handles[1].pos,
-            &self.handles[2].pos,
-            &self.handles[3].pos,
-            s,
-        )
+        if hits == 0 {
+            return;
+        }
+
+        self.set_fill_color(&result_color);
+        self.g.fill_rect(x, y, 1., 1.);
     }
 
     fn render_control_lines(&self) {
@@ -244,11 +217,6 @@ impl Canvas {
     fn render_handle_bezier(&self) {
         self.g.set_line_width(1.);
         self.set_stroke_color(&Color::black());
-
-        self.g.begin_path();
-        self.render_curve(|s| self.stem_bezier(s));
-        self.g.stroke();
-        self.g.close_path();
 
         self.g.begin_path();
         self.render_curve(|s| Vec3::bezier2(
